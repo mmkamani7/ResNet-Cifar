@@ -17,6 +17,7 @@ from collections import namedtuple
 
 import load_dataset as ld
 import model
+import resnet_model
 import utils
 import numpy as np
 import six
@@ -87,7 +88,8 @@ def get_model_fn(features, labels, mode, params):
 	learning_rate = tf.train.piecewise_constant(tf.train.get_global_step(),
 																						boundaries, staged_lr, name='learning_rate')
 
-	optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+	optimizer = tf.train.MomentumOptimizer(
+                      learning_rate=learning_rate, momentum=params.momentum)
 	train_op.append(
 			optimizer.apply_gradients(
 				model_gradvars, global_step=tf.train.get_global_step())
@@ -107,8 +109,8 @@ def get_model_fn(features, labels, mode, params):
 	train_op = tf.group(*train_op)
 
 
-	accuracy = tf.metrics.accuracy(tf.argmax(labels, axis=1), model_preds['classes'])
-
+	# accuracy = tf.metrics.accuracy(tf.argmax(labels, axis=1), model_preds['classes'])
+	accuracy = tf.metrics.accuracy(labels, model_preds['classes'])
 	metrics = {'accuracy': accuracy}
 	tf.summary.scalar('accuracy', accuracy[1])
 
@@ -151,13 +153,21 @@ def _model_fn(is_training, weight_decay, feature, label, data_format,
 															version,
 															num_class)
 	resnet_logits = resnet_model(feature, data_format)
+	# model = resnet_model.ResNetCifar(
+	# 		num_layers,
+	# 		batch_norm_decay=batch_norm_decay,
+	# 		batch_norm_epsilon=batch_norm_epsilon,
+	# 		is_training=is_training,
+	# 		data_format=data_format,
+	# 		dataset_name='cifar10')
+	# resnet_logits = model.forward_pass(feature, input_data_format=data_format)
 	model_preds = {
 	  'classes': tf.argmax(input=resnet_logits, axis=1),
 	  'probabilities': tf.nn.softmax(resnet_logits)
   }
 	model_params = tf.trainable_variables(scope=scope)
-	model_loss = tf.losses.softmax_cross_entropy(
-		  logits=resnet_logits, onehot_labels=label)  
+	model_loss = tf.losses.sparse_softmax_cross_entropy(
+		  logits=resnet_logits, labels=label)  
 	model_loss +=  weight_decay * tf.add_n([tf.nn.l2_loss(v) for v in model_params])
 	
 	param_grads = tf.gradients(model_loss, model_params)
@@ -254,7 +264,7 @@ if __name__ == '__main__':
 	parser.add_argument(
 		'--num-layers',
 		type=int,
-		default=20,
+		default=44,
 		help='The number of layers of the model.')
 	parser.add_argument(
 		'--train-steps',
@@ -279,12 +289,12 @@ if __name__ == '__main__':
 	parser.add_argument(
 		'--weight-decay',
 		type=float,
-		default=2e-3,
+		default=2e-4,
 		help='Weight decay for convolutions.')
 	parser.add_argument(
 		'--learning-rate',
 		type=float,
-		default=0.001,
+		default=0.1,
 		help="""\
 		This is the inital learning rate value. The learning rate will decrease
 		during training. For more details check the model_fn implementation in

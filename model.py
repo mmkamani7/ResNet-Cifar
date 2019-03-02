@@ -31,9 +31,10 @@ class ResNet(tf.keras.Model, BaseResNet):
     inputs = tf.placeholder(tf.float32, [None,32,32,3])
     x, conv1 = self._conv(inputs, 3, 16, 1)
     x, batch_norm1 = self._batch_norm(x)
-    x, relu1 = self._relu(x)
+    self._model_layers.append([conv1, batch_norm1])
 
-    self._model_layers.append([conv1, batch_norm1, relu1])
+    x = self._relu(x)
+
     # Use basic (non-bottleneck) block and ResNet V1 (post-activation).
     if version == 'v1':
       self.res_func_build = self._residual_v1_build
@@ -74,7 +75,7 @@ class ResNet(tf.keras.Model, BaseResNet):
     
     for l in self._model_layers[0]:
       x = l(x)
-
+    x = self._relu(x)
 
     # 3 stages of block stacking.
     for i in range(3):

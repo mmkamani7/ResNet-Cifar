@@ -48,7 +48,8 @@ class CifarDataset():
     image = tf.cast(tf.reshape(image, [self.HEIGHT, self.WIDTH, self.DEPTH]),tf.float32)
     image = self.preprocess(image)
     
-    label = tf.cast(tf.one_hot(features['label'], self.num_class), tf.float32)
+    # label = tf.cast(tf.one_hot(features['label'], self.num_class), tf.float32)
+    label = tf.cast(features['label'], tf.int32)
     return image, label
 
   def make_batch(self, batch_size):

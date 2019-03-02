@@ -49,15 +49,18 @@ class BaseResNet(object):
         layers.append([zero_pad0])
       x, conv1 = self._conv(x, kernel_size, out_filter, stride)
       x, batch_norm1 = self._batch_norm(x)
-      x, relu1 = self._relu(x)
+
+      if layers:
+        layers[0].extend([conv1, batch_norm1])
+      else:
+        layers.append([conv1, batch_norm1])
+
+      x = self._relu(x)
 
       x, conv2 = self._conv(x, kernel_size, out_filter, 1)
       x, batch_norm2 = self._batch_norm(x)
 
-      if layers:
-        layers[0].extend([conv1, batch_norm1, relu1, conv2, batch_norm2])
-      else:
-        layers.append([conv1, batch_norm1, relu1, conv2, batch_norm2])
+      layers.append([conv2, batch_norm2])
 
       if in_filter != out_filter:
         orig_x, avg_pool1 = self._avg_pool(orig_x, stride, stride)
@@ -68,8 +71,7 @@ class BaseResNet(object):
         else:
           orig_x = tf.pad(orig_x, [[0, 0], [0, 0], [0, 0], [pad, pad]])
 
-      x, relu2 = self._relu(tf.add(x, orig_x))
-      layers.append([relu2])
+      x = self._relu(tf.add(x, orig_x))
       tf.logging.info('image after unit %s: %s', name_scope, x.get_shape())
       return x, layers
   
@@ -84,16 +86,20 @@ class BaseResNet(object):
     orig_x = x
     for l in layers[0]:
       x = l(x)
+    x = self._relu(x)
 
+    for l in layers[1]:
+      x = l(x)
+    
     if in_filter != out_filter:
-      orig_x = layers[1][0](orig_x)
+      orig_x = layers[2][0](orig_x)
       pad = (out_filter - in_filter) // 2
       if self._data_format == 'channels_first':
         orig_x = tf.pad(orig_x, [[0, 0], [pad, pad], [0, 0], [0, 0]])
       else:
         orig_x = tf.pad(orig_x, [[0, 0], [0, 0], [0, 0], [pad, pad]])
 
-    x = layers[-1][0](tf.add(x, orig_x))
+    x = self._relu(tf.add(x, orig_x))
     return x
 
   def _residual_v2_build(self,
@@ -107,13 +113,13 @@ class BaseResNet(object):
     with tf.name_scope('residual_v2') as name_scope:
       if self._activate_before_residual:
         x, batch_norm1 = self._batch_norm(x)
-        x, relu1 = self._relu(x)
+        x = self._relu(x)
         orig_x = x
       else:
         orig_x = x
         x, batch_norm1 = self._batch_norm(x)
-        x, relu1= self._relu(x)
-      layers.append([batch_norm1, relu1])
+        x = self._relu(x)
+      layers.append([batch_norm1])
 
       if stride > 1:
         x, zero_pad0 = self._padding(x, padding=kernel_size-1)
@@ -121,12 +127,12 @@ class BaseResNet(object):
       x, conv1 = self._conv(x, kernel_size, out_filter, stride)
 
       x, batch_norm2 = self._batch_norm(x)
-      x, relu2 = self._relu(x)
+      x = self._relu(x)
       x, conv2 = self._conv(x, kernel_size, out_filter, 1)
       if len(layers) > 1:
-        layers[1].extend([conv1, batch_norm2, relu2, conv2])
+        layers[1].extend([conv1, batch_norm2, conv2])
       else:
-        layers.append([conv1, batch_norm2, relu2, conv2])
+        layers.append([conv1, batch_norm2, conv2])
     
       if in_filter != out_filter:
         pad = (out_filter - in_filter) // 2
@@ -149,16 +155,17 @@ class BaseResNet(object):
                   layers=[]):
     assert len(layers) > 0,'The layers list is empty. make sure you build the model first'
     if self._activate_before_residual:
-      for l in layers[0]:
-        x = l(x)
+      x = layers[0][0](x)
       orig_x = x
     else:
       orig_x = x
-      for l in layers[0]:
-        x = l(x)
+      x = layers[0][0](x)
+    x = self._relu(x)
     
-    for l in layers[1]:
+    for l in layers[1][:-1]:
       x = l(x)
+    x = self._relu(x)
+    x = layers[1][-1](x)
     
     if in_filter != out_filter:
       pad = (out_filter - in_filter) // 2
@@ -182,25 +189,28 @@ class BaseResNet(object):
     with tf.name_scope('bottle_residual_v2') as name_scope:
       if self._activate_before_residual:
         x, batch_norm1 = self._batch_norm(x)
-        x, relu1 = self._relu(x)
+        x = self._relu(x)
         orig_x = x
       else:
         orig_x = x
         x, batch_norm1 = self._batch_norm(x)
-        x, relu1= self._relu(x)
-      layers.append([batch_norm1, relu1])
+        x = self._relu(x)
+      layers.append([batch_norm1])
 
       x, conv1 = self._conv(x, 1, out_filter // 4, stride, is_atrous=True)
-
       x, batch_norm2 = self._batch_norm(x)
-      x, relu2 = self._relu(x)
+      layers.append([conv1, batch_norm2])
+
+      x = self._relu(x)
+      
       x, conv2 = self._conv(x, kernel_size, out_filter // 4, 1, is_atrous=True)
-
       x, batch_norm3 = self._batch_norm(x)
-      x, relu3 = self._relu(x)
-      x, conv3= self._conv(x, 1, out_filter, 1, is_atrous=True)
+      layers.append([conv2, batch_norm3])
+      
+      x = self._relu(x)
 
-      layers.append([conv1, batch_norm2, relu2, conv2, batch_norm3, relu3, conv3])
+      x, conv3 = self._conv(x, 1, out_filter, 1, is_atrous=True)
+      layers.append([conv3])
       
       if in_filter != out_filter:
         orig_x, conv4 = self._conv(orig_x, 1, out_filter, stride, is_atrous=True)
@@ -218,19 +228,24 @@ class BaseResNet(object):
                               layers=[]):
     assert len(layers) > 0,'The layers list is empty. make sure you build the model first'
     if self._activate_before_residual:
-      for l in layers[0]:
-        x = l(x)
+      x = layers[0][0](x)
       orig_x = x
     else:
       orig_x = x
-      for l in layers[0]:
-        x = l(x)
+      x = layers[0][0](x)
+    x = self._relu(x)
     
     for l in layers[1]:
       x = l(x)
-    
+    x = self.relu(x)
+
+    for l in layers[2]:
+      x = l(x)
+    x = self._relu(x)
+    x = layers[3][0](x)
+
     if in_filter != out_filter:
-      orig_x = layers[2][0](orig_x)
+      orig_x = layers[4][0](orig_x)
     x = tf.add(x, orig_x)
 
     return x
@@ -261,10 +276,11 @@ class BaseResNet(object):
                   epsilon=self._batch_norm_epsilon,
                   fused=False)
     return layer(x), layer
+  
+    
 
   def _relu(self, x):
-    layer = tf.keras.layers.ReLU()
-    return layer(x), layer
+    return tf.nn.relu(x)
 
   def _fully_connected(self, x, out_dim, activation=None):
     with tf.name_scope('fully_connected') as name_scope:
